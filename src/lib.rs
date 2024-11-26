@@ -118,9 +118,11 @@ pub fn iter_proc_io_as(input: TokenStream) -> TokenStream {
         let raug::processor::ProcessorInputs {
             input_specs,
             inputs,
+            assets,
             mode,
             sample_rate,
             block_size,
+            ..
         } = #inputs;
 
         let [#(#input_idents),*] = inputs else {
@@ -131,6 +133,7 @@ pub fn iter_proc_io_as(input: TokenStream) -> TokenStream {
             output_spec,
             outputs,
             mode,
+            ..
         } = #outputs;
 
         let [#(#output_idents),*] = outputs else {
@@ -151,6 +154,7 @@ pub fn iter_proc_io_as(input: TokenStream) -> TokenStream {
                     raug::processor::ProcessorInputs::new(
                         std::slice::from_ref(&input_specs[#i]),
                         std::slice::from_ref(#input_ident),
+                        assets,
                         mode,
                         sample_rate,
                         block_size,
@@ -164,6 +168,7 @@ pub fn iter_proc_io_as(input: TokenStream) -> TokenStream {
             raug::processor::ProcessorInputs::new(
                 std::slice::from_ref(&input_specs[#i]),
                 std::slice::from_ref(#input_ident),
+                assets,
                 mode,
                 sample_rate,
                 block_size,
