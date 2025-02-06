@@ -1,6 +1,110 @@
 use proc_macro::TokenStream;
 use quote::quote;
 
+/// Returns the MIDI note constant for the given note name and octave.
+///
+/// # Examples
+///
+/// ```
+/// let note = raug_macros::note!["C4"];
+/// assert_eq!(note, 60);
+///
+/// let note = raug_macros::note!["C#4"];
+/// assert_eq!(note, 61);
+///
+/// let note = raug_macros::note!["Bb3"];
+/// assert_eq!(note, 58);
+/// ```
+#[proc_macro]
+pub fn note(input: TokenStream) -> TokenStream {
+    let input: syn::LitStr = syn::parse(input).unwrap();
+    let input = input.value();
+
+    let note = parse_note(&input);
+
+    let output = quote! {
+        #note
+    };
+
+    output.into()
+}
+
+/// Returns an array of MIDI notes for the given note names.
+/// The note names should be separated by whitespace.
+///
+/// # Examples
+///
+/// ```
+/// let notes = raug_macros::note_array!["C4 D4 E4"];
+/// assert_eq!(notes, [60, 62, 64]);
+/// ```
+#[proc_macro]
+pub fn note_array(input: TokenStream) -> TokenStream {
+    let input: syn::LitStr = syn::parse(input).unwrap();
+    let input = input.value();
+
+    let notes = input.split_whitespace().map(parse_note);
+
+    let output = quote! {
+        [#(#notes),*]
+    };
+
+    output.into()
+}
+
+fn parse_note(input: &str) -> u8 {
+    let input = input.trim();
+    let input = input.to_uppercase();
+
+    let mut chars = input.chars();
+
+    let mut note: i8 = match chars.next().expect("Invalid note: empty input") {
+        'C' => 0,
+        'D' => 2,
+        'E' => 4,
+        'F' => 5,
+        'G' => 7,
+        'A' => 9,
+        'B' => 11,
+        _ => panic!("Invalid note: invalid note name"),
+    };
+
+    let mut octave: i8 = 0;
+    let mut stop = false;
+    while !stop {
+        let next = chars.next();
+        match next {
+            Some('#') => note += 1, // keep going
+            Some('B') => note -= 1, // keep going
+            Some('0'..='9') => {
+                let num = next.unwrap().to_digit(10).unwrap() as i8;
+                octave = num + 1;
+                stop = true;
+            }
+            Some('-') => {
+                let num = chars.next().unwrap().to_digit(10).unwrap() as i8;
+                octave = -num + 1;
+                stop = true;
+            }
+            None => {
+                stop = true;
+            }
+            _ => {
+                panic!("Invalid note: unexpected character");
+            }
+        }
+    }
+
+    let octave = (octave)
+        .checked_mul(12)
+        .expect("Invalid note: octave out of range");
+    let note = note
+        .checked_add(octave)
+        .expect("Invalid note: note out of range");
+
+    note as u8
+}
+
 /// Derive the `Processor` trait for a struct.
 ///
 /// The `Processor` trait is used to define a processor that can be used in a signal processing graph.
