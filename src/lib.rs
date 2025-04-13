@@ -1,5 +1,13 @@
 use proc_macro::TokenStream;
+use processor_attribute::processor_attribute;
 use quote::quote;
+
+mod processor_attribute;
+
+#[proc_macro_attribute]
+pub fn processor(attr: TokenStream, item: TokenStream) -> TokenStream {
+    processor_attribute(attr, item)
+}
 
 /// Returns the MIDI note constant for the given note name and octave.
 ///
@@ -35,8 +43,8 @@ pub fn note(input: TokenStream) -> TokenStream {
 /// # Examples
 ///
 /// ```
-/// let notes = raug_macros::note_array!["C4 D4 E4"];
-/// assert_eq!(notes, [60, 62, 64]);
+/// let notes = raug_macros::note_array!["C4 Db4 E4"];
+/// assert_eq!(notes, [60, 61, 64]);
 /// ```
 #[proc_macro]
 pub fn note_array(input: TokenStream) -> TokenStream {
@@ -105,173 +113,6 @@ fn parse_note(input: &str) -> u8 {
     note as u8
 }
 
-/// Derive the `Processor` trait for a struct.
-///
-/// The `Processor` trait is used to define a processor that can be used in a signal processing graph.
-///
-/// # Attributes
-///
-/// The following attributes can be used to specify the inputs and outputs of the processor:
-///
-/// - `#[input]`: Specifies that a field is an input.
-/// - `#[output]`: Specifies that a field is an output.
-/// - `#[processor_typetag]`: Specifies that the processor should be serializable using `typetag`.
-#[proc_macro_derive(Processor, attributes(input, output, processor_typetag))]
-pub fn derive_processor(input: TokenStream) -> TokenStream {
-    let ast: syn::DeriveInput = syn::parse(input).unwrap();
-    impl_processor(&ast)
-}
-
-fn impl_processor(ast: &syn::DeriveInput) -> TokenStream {
-    let name = &ast.ident;
-    let (fields, typetag) = match &ast.data {
-        syn::Data::Struct(data) => match &data.fields {
-            syn::Fields::Named(fields) => {
-                let typetag = ast
-                    .attrs
-                    .iter()
-                    .any(|attr| attr.path().is_ident("processor_typetag"));
-                (fields.named.iter().collect::<Vec<_>>(), typetag)
-            }
-            _ => panic!("Processor must be a struct with named fields"),
-        },
-        _ => panic!("Processor must be a struct"),
-    };
-
-    let input_fields = fields
-        .iter()
-        .filter(|field| field.attrs.iter().any(|attr| attr.path().is_ident("input")))
-        .collect::<Vec<_>>();
-
-    let output_fields = fields
-        .iter()
-        .filter(|field| {
-            field
-                .attrs
-                .iter()
-                .any(|attr| attr.path().is_ident("output"))
-        })
-        .collect::<Vec<_>>();
-
-    let input_field_names = input_fields
-        .iter()
-        .map(|field| field.ident.as_ref().unwrap())
-        .collect::<Vec<_>>();
-    let output_field_names = output_fields
-        .iter()
-        .map(|field| field.ident.as_ref().unwrap())
-        .collect::<Vec<_>>();
-
-    let input_field_types = input_fields
-        .iter()
-        .map(|field| &field.ty)
-        .collect::<Vec<_>>();
-    // let output_field_types = output_fields
-    //     .iter()
-    //     .map(|field| &field.ty)
-    //     .collect::<Vec<_>>();
-
-    let input_field_indices = input_fields
-        .iter()
-        .enumerate()
-        .map(|(i, _)| i)
-        .collect::<Vec<_>>();
-    let output_field_indices = output_fields
-        .iter()
-        .enumerate()
-        .map(|(i, _)| i)
-        .collect::<Vec<_>>();
-
-    let mut input_field_signal_types = Vec::new();
-    for field in input_fields {
-        let ty = &field.ty;
-        let syn::Type::Path(syn::TypePath { path, .. }) = ty else {
-            panic!("Input fields must have a type path");
-        };
-        let ident = path.segments.iter().last().unwrap().ident.to_string();
-        let ident = match ident.as_str() {
-            "bool" => "raug::signal::SignalType::Bool",
-            "f32" => "raug::signal::SignalType::Float",
-            "f64" => "raug::signal::SignalType::Float",
-            "Float" => "raug::signal::SignalType::Float",
-            "i64" => "raug::signal::SignalType::Int",
-            "MidiMessage" => "raug::signal::SignalType::Midi",
-            _ => panic!("Unsupported input type: {}", ident),
-        };
-        let path: syn::Path = syn::parse_str(ident).unwrap();
-        input_field_signal_types.push(path);
-    }
-
-    let mut output_field_signal_types = Vec::new();
-    for field in output_fields {
-        let ty = &field.ty;
-        let syn::Type::Path(syn::TypePath { path, .. }) = ty else {
-            panic!("Output fields must have a type path");
-        };
-        let ident = path.segments.iter().last().unwrap().ident.to_string();
-        let ident = match ident.as_str() {
-            "bool" => "raug::signal::SignalType::Bool",
-            "f32" => "raug::signal::SignalType::Float",
-            "f64" => "raug::signal::SignalType::Float",
-            "Float" => "raug::signal::SignalType::Float",
-            "i64" => "raug::signal::SignalType::Int",
-            "MidiMessage" => "raug::signal::SignalType::Midi",
-            _ => panic!("Unsupported output type: {}", ident),
-        };
-        let path: syn::Path = syn::parse_str(ident).unwrap();
-        output_field_signal_types.push(path);
-    }
-
-    let typetag = if typetag {
-        quote! {
-            #[raug::__typetag::serde]
-        }
-    } else {
-        quote! {}
-    };
-
-    let expanded = quote! {
-        #typetag
-        impl raug::processor::Processor for #name {
-            fn input_spec(&self) -> Vec<raug::processor::SignalSpec> {
-                vec![
-                    #(
-                        raug::processor::SignalSpec::new(stringify!(#input_field_names), #input_field_signal_types),
-                    )*
-                ]
-            }
-
-            fn output_spec(&self) -> Vec<raug::processor::SignalSpec> {
-                vec![
-                    #(
-                        raug::processor::SignalSpec::new(stringify!(#output_field_names), #output_field_signal_types),
-                    )*
-                ]
-            }
-
-            fn process(&mut self, inputs: raug::processor::ProcessorInputs, mut outputs: raug::processor::ProcessorOutputs) -> Result<(), raug::processor::ProcessorError> {
-                #(
-                    let #input_field_names = inputs.input_as::<#input_field_types>(#input_field_indices);
-                )*
-
-                for __i in 0..inputs.block_size() {
-                    #(
-                        self.#input_field_names = #input_field_names.and_then(|inp| inp[__i]).unwrap_or(self.#input_field_names);
-                    )*
-                    self.update(&inputs.env);
-                    #(
-                        outputs.set_output_as(#output_field_indices, __i, self.#output_field_names)?;
-                    )*
-                }
-
-                Ok(())
-            }
-        }
-    };
-
-    expanded.into()
-}
-
 struct IterProcIoAs {
     inputs: syn::Ident,
     input_types: syn::punctuated::Punctuated<syn::Type, syn::Token![,]>,
@@ -324,7 +165,7 @@ pub fn iter_proc_io_as(input: TokenStream) -> TokenStream {
     }
 
     let start = quote! {
-        let raug::processor::ProcessorInputs {
+        let raug::processor::io::ProcessorInputs {
             input_specs,
             inputs,
             env,
@@ -335,7 +176,7 @@ pub fn iter_proc_io_as(input: TokenStream) -> TokenStream {
             panic!("Expected {} inputs, got {}", #input_count, inputs.len());
         };
 
-        let raug::processor::ProcessorOutputs {
+        let raug::processor::io::ProcessorOutputs {
             output_spec,
             outputs,
             mode,
@@ -357,7 +198,7 @@ pub fn iter_proc_io_as(input: TokenStream) -> TokenStream {
         if let syn::Type::Path(path) = input_typ {
             if path.path.get_ident().unwrap() == "Any" {
                 let chunk = quote! {
-                    raug::processor::ProcessorInputs::new(
+                    raug::processor::io::ProcessorInputs::new(
                         std::slice::from_ref(&input_specs[#i]),
                         std::slice::from_ref(#input_ident),
                         env,
@@ -368,7 +209,7 @@ pub fn iter_proc_io_as(input: TokenStream) -> TokenStream {
             }
         }
         let chunk = quote! {
-            raug::processor::ProcessorInputs::new(
+            raug::processor::io::ProcessorInputs::new(
                 std::slice::from_ref(&input_specs[#i]),
                 std::slice::from_ref(#input_ident),
                 env,
@@ -385,7 +226,7 @@ pub fn iter_proc_io_as(input: TokenStream) -> TokenStream {
         if let syn::Type::Path(path) = output_typ {
             if path.path.get_ident().unwrap() == "Any" {
                 let chunk = quote! {
-                    raug::processor::ProcessorOutputs::new(
+                    raug::processor::io::ProcessorOutputs::new(
                         std::slice::from_ref(&output_spec[#i]),
                         std::slice::from_mut(#output_ident),
                         mode,
@@ -396,7 +237,7 @@ pub fn iter_proc_io_as(input: TokenStream) -> TokenStream {
             }
         }
         let chunk = quote! {
-            raug::processor::ProcessorOutputs::new(
+            raug::processor::io::ProcessorOutputs::new(
                 std::slice::from_ref(&output_spec[#i]),
                 std::slice::from_mut(#output_ident),
                 mode,
