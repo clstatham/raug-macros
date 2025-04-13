@@ -33,7 +33,12 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
                         })
                         .unwrap();
                 } else {
-                    panic!("Unknown attribute: {}", meta_list.path.to_token_stream());
+                    return syn::Error::new_spanned(
+                        meta_list.path.clone(),
+                        "Unknown attribute. Only `derive` is supported.",
+                    )
+                    .to_compile_error()
+                    .into();
                 }
             }
         }
@@ -66,7 +71,12 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
             if let syn::Type::Path(type_path) = &*arg.ty {
                 if type_path.path.is_ident("ProcEnv") {
                     if proc_env_ident.is_some() {
-                        panic!("Only one ProcEnv argument is allowed")
+                        return syn::Error::new_spanned(
+                            arg.pat.clone(),
+                            "Only one ProcEnv argument is allowed",
+                        )
+                        .to_compile_error()
+                        .into();
                     }
                     proc_env_ident = Some(arg.pat.clone());
                     continue;
@@ -77,7 +87,12 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
                     let name = if let syn::Pat::Ident(pat_ident) = &*arg.pat {
                         pat_ident.ident.clone()
                     } else {
-                        panic!("State argument must be a named identifier")
+                        return syn::Error::new_spanned(
+                            arg.pat.clone(),
+                            "State argument must be a named identifier",
+                        )
+                        .to_compile_error()
+                        .into();
                     };
                     let ty = *arg.ty.clone();
                     state.push(ProcessorArg { name, ty });
@@ -85,60 +100,125 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
                     let name = if let syn::Pat::Ident(pat_ident) = &*arg.pat {
                         pat_ident.ident.clone()
                     } else {
-                        panic!("Input argument must be a named identifier")
+                        return syn::Error::new_spanned(
+                            arg.pat.clone(),
+                            "Input argument must be a named identifier",
+                        )
+                        .to_compile_error()
+                        .into();
                     };
                     let ty;
                     if let syn::Type::Group(group) = &*arg.ty {
                         if let syn::Type::Reference(reference) = &*group.elem {
                             if reference.mutability.is_some() {
-                                panic!("Input argument must be immutable reference")
+                                return syn::Error::new_spanned(
+                                    arg.pat.clone(),
+                                    "Input argument must be immutable reference",
+                                )
+                                .to_compile_error()
+                                .into();
                             }
                             ty = *reference.elem.clone();
                         } else {
-                            panic!("Input argument must be a reference inside a group")
+                            return syn::Error::new_spanned(
+                                arg.pat.clone(),
+                                "Input argument must be a reference inside a group",
+                            )
+                            .to_compile_error()
+                            .into();
                         }
                     } else if let syn::Type::Reference(reference) = &*arg.ty {
                         if reference.mutability.is_some() {
-                            panic!("Input argument must be immutable reference")
+                            return syn::Error::new_spanned(
+                                arg.pat.clone(),
+                                "Input argument must be immutable reference",
+                            )
+                            .to_compile_error()
+                            .into();
                         }
                         ty = *reference.elem.clone();
                     } else {
-                        panic!("Input argument must be a reference")
+                        return syn::Error::new_spanned(
+                            arg.pat.clone(),
+                            "Input argument must be a reference",
+                        )
+                        .to_compile_error()
+                        .into();
                     }
                     input.push(ProcessorArg { name, ty });
                 } else if attr.path().is_ident("output") {
                     let name = if let syn::Pat::Ident(pat_ident) = &*arg.pat {
                         pat_ident.ident.clone()
                     } else {
-                        panic!("Output argument must be a named identifier")
+                        return syn::Error::new_spanned(
+                            arg.pat.clone(),
+                            "Output argument must be a named identifier",
+                        )
+                        .to_compile_error()
+                        .into();
                     };
                     let ty;
                     if let syn::Type::Group(group) = &*arg.ty {
                         if let syn::Type::Reference(reference) = &*group.elem {
                             if reference.mutability.is_none() {
-                                panic!("Output argument must be mutable reference")
+                                return syn::Error::new_spanned(
+                                    arg.pat.clone(),
+                                    "Output argument must be mutable reference",
+                                )
+                                .to_compile_error()
+                                .into();
                             }
                             ty = *reference.elem.clone();
                         } else {
-                            panic!("Output argument must be a reference inside a group")
+                            return syn::Error::new_spanned(
+                                arg.pat.clone(),
+                                "Output argument must be a reference inside a group",
+                            )
+                            .to_compile_error()
+                            .into();
                         }
                     } else if let syn::Type::Reference(reference) = &*arg.ty {
                         if reference.mutability.is_none() {
-                            panic!("Output argument must be mutable reference")
+                            return syn::Error::new_spanned(
+                                arg.pat.clone(),
+                                "Output argument must be mutable reference",
+                            )
+                            .to_compile_error()
+                            .into();
                         }
                         ty = *reference.elem.clone();
                     } else {
-                        panic!("Output argument must be a reference")
+                        return syn::Error::new_spanned(
+                            arg.pat.clone(),
+                            "Output argument must be a reference",
+                        )
+                        .to_compile_error()
+                        .into();
                     }
                     output.push(ProcessorArg { name, ty });
                 } else {
-                    panic!("Unknown attribute: {}", attr.path().to_token_stream());
+                    return syn::Error::new_spanned(
+                        attr.path().clone(),
+                        "Unknown attribute. Only `state`, `input`, and `output` are supported.",
+                    )
+                    .to_compile_error()
+                    .into();
                 }
             } else {
-                panic!("Expected an attribute on function argument")
+                return syn::Error::new_spanned(
+                    arg.pat.clone(),
+                    "Expected a function argument with attributes",
+                )
+                .to_compile_error()
+                .into();
             }
         } else {
-            panic!("Expected a function argument with attributes")
+            return syn::Error::new_spanned(
+                arg.clone(),
+                "Expected a function argument with attributes",
+            )
+            .to_compile_error()
+            .into();
         }
     }
 
@@ -155,11 +235,21 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
         let ProcessorArg { name, ty, .. } = arg;
         let ty = if let syn::Type::Reference(ty) = ty {
             if ty.mutability.is_none() {
-                panic!("State argument must be mutable reference")
+                return syn::Error::new_spanned(
+                    ty.clone(),
+                    "State argument must be mutable reference",
+                )
+                .to_compile_error()
+                .into();
             }
             ty.elem.clone()
         } else {
-            panic!("State argument must be a reference")
+            return syn::Error::new_spanned(
+                ty.clone(),
+                "State argument must be a mutable reference",
+            )
+            .to_compile_error()
+            .into();
         };
         struct_fields.push(quote! {
             pub #name: #ty,
