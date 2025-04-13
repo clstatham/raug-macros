@@ -306,6 +306,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
     let struct_def = quote! {
         #(#attrs)*
         #[derive(Clone, #(#extra_derives),*)]
+        #[allow(missing_docs)]
         #vis struct #struct_name #tg #wc {
             #(#struct_fields)*
         }
@@ -315,6 +316,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
 
     let struct_update_impl = quote! {
         impl #ig #struct_name #tg #wc {
+            #[doc = "Update function for the processor."]
             pub fn update(&mut self, env: raug::processor::io::ProcEnv) -> raug::processor::ProcResult<()> {
                 let #struct_name { #(#struct_destructure)* } = self;
                 #(#clone_inputs)*
