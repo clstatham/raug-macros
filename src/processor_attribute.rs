@@ -279,7 +279,9 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
             let #name = inputs.input_as::<#ty>(#arg_index);
         });
         assign_inputs.push(quote! {
-            self.#name = #name.map(|inp| inp[__i]).unwrap_or(self.#name);
+            if let Some(#name) = #name.map(|inp| &inp[__i]) {
+                self.#name.clone_from(#name);
+            }
         });
     }
 
@@ -299,7 +301,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
             raug::signal::type_erased::ErasedBuffer::zeros::<#ty>(size)
         });
         assign_outputs.push(quote! {
-            outputs.set_output_as::<#ty>(#arg_index, __i, self.#name)?;
+            outputs.set_output_as::<#ty>(#arg_index, __i, self.#name.clone())?;
         });
     }
 

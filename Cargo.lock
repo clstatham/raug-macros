@@ -568,6 +568,7 @@ name = "raug"
 version = "0.0.4"
 dependencies = [
  "any_vec",
+ "bumpalo",
  "cpal",
  "crossbeam-channel",
  "downcast-rs",
