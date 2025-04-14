@@ -301,7 +301,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
             raug::signal::type_erased::ErasedBuffer::zeros::<#ty>(size)
         });
         assign_outputs.push(quote! {
-            outputs.set_output_as::<#ty>(#arg_index, __i, self.#name.clone())?;
+            outputs.set_output_as::<#ty>(#arg_index, __i, &self.#name)?;
         });
     }
 
