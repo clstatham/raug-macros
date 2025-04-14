@@ -19,7 +19,6 @@ impl AddToCounter {
             counter: initial_count,
             a: 0,
             b: 0,
-            out: 0,
         }
     }
 }

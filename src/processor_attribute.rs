@@ -54,17 +54,31 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
 
     let mut proc_env_ident = None;
 
+    let mut phantom_data = vec![];
     let mut state = vec![];
     let mut input = vec![];
     let mut output = vec![];
-    let mut struct_destructure = vec![];
-    let mut clone_inputs = vec![];
+    // let mut struct_destructure = vec![];
+    // let mut clone_inputs = vec![];
     let mut input_spec = vec![];
     let mut output_spec = vec![];
     let mut create_output_buffers = vec![];
+    let mut update_args = vec![];
+    let mut update_call_args = vec![];
     let mut get_inputs = vec![];
+    let mut get_outputs_outer = vec![];
+    let mut get_outputs = vec![];
     let mut assign_inputs = vec![];
-    let mut assign_outputs = vec![];
+    // let mut assign_outputs = vec![];
+
+    for (i, generic) in item.sig.generics.params.iter().enumerate() {
+        let ident = format_ident!("_marker{}", i);
+        if let syn::GenericParam::Type(ty) = generic {
+            phantom_data.push(quote! {
+                #ident: std::marker::PhantomData<#ty>,
+            });
+        }
+    }
 
     for arg in item.sig.inputs.iter() {
         if let syn::FnArg::Typed(arg) = arg {
@@ -254,9 +268,12 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
         struct_fields.push(quote! {
             pub #name: #ty,
         });
-        struct_destructure.push(quote! {
-            #name,
+        update_args.push(quote! {
+            #name: &mut #ty,
         });
+        update_call_args.push(quote! {
+            &mut self.#name,
+        })
     }
 
     for (arg_index, arg) in input.iter().enumerate() {
@@ -266,42 +283,60 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
             pub #name: #ty,
         });
 
-        struct_destructure.push(quote! {
-            #name,
-        });
-        clone_inputs.push(quote! {
-            let #name = &*#name;
-        });
+        // struct_destructure.push(quote! {
+        //     #name,
+        // });
+        // clone_inputs.push(quote! {
+        //     let #name = &*#name;
+        // });
         input_spec.push(quote! {
             raug::processor::io::SignalSpec::new(stringify!(#name), <#ty as raug::signal::Signal>::signal_type())
         });
         get_inputs.push(quote! {
-            let #name = inputs.input_as::<#ty>(#arg_index);
+            let #name = &inputs.input_as::<#ty>(#arg_index);
         });
         assign_inputs.push(quote! {
             if let Some(#name) = #name.map(|inp| &inp[__i]) {
                 self.#name.clone_from(#name);
             }
         });
+        update_args.push(quote! {
+            #name: &#ty,
+        });
+        update_call_args.push(quote! {
+            &self.#name,
+        });
     }
 
     for (arg_index, arg) in output.iter().enumerate() {
         let ProcessorArg { name, ty } = arg;
 
-        struct_fields.push(quote! {
-            pub #name: #ty,
-        });
-        struct_destructure.push(quote! {
-            #name,
-        });
+        // struct_fields.push(quote! {
+        //     pub #name: #ty,
+        // });
+        // struct_destructure.push(quote! {
+        //     #name,
+        // });
         output_spec.push(quote! {
             raug::processor::io::SignalSpec::new(stringify!(#name), <#ty as raug::signal::Signal>::signal_type())
         });
         create_output_buffers.push(quote! {
             raug::signal::type_erased::ErasedBuffer::zeros::<#ty>(size)
         });
-        assign_outputs.push(quote! {
-            outputs.set_output_as::<#ty>(#arg_index, __i, &self.#name)?;
+        // assign_outputs.push(quote! {
+        //     outputs.set_output_as::<#ty>(#arg_index, __i, &self.#name)?;
+        // });
+        update_args.push(quote! {
+            #name: &mut #ty,
+        });
+        update_call_args.push(quote! {
+            #name,
+        });
+        get_outputs_outer.push(quote! {
+            let mut #name = outputs.output(#arg_index);
+        });
+        get_outputs.push(quote! {
+            let #name = #name.get_mut_as::<#ty>(__i).unwrap();
         });
     }
 
@@ -311,6 +346,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
         #[allow(missing_docs)]
         #vis struct #struct_name #tg #wc {
             #(#struct_fields)*
+            #(#phantom_data)*
         }
     };
 
@@ -319,9 +355,8 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
     let struct_update_impl = quote! {
         impl #ig #struct_name #tg #wc {
             #[doc = "Update function for the processor."]
-            pub fn update(&mut self, env: raug::processor::io::ProcEnv) -> raug::processor::ProcResult<()> {
-                let #struct_name { #(#struct_destructure)* } = self;
-                #(#clone_inputs)*
+            #[allow(clippy::too_many_arguments)]
+            fn update (env: raug::processor::io::ProcEnv, #(#update_args)*) -> raug::processor::ProcResult<()> #wc {
                 #proc_env_decl
                 #body
             }
@@ -345,7 +380,8 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
 
     let fn_def = quote! {
         #(#attrs)*
-        #vis fn #fn_name #tg(#fn_args) #outputs #wc  {
+        #[allow(clippy::too_many_arguments)]
+        #vis fn #fn_name #tg (#fn_args) #outputs #wc  {
             #body
         }
     };
@@ -369,12 +405,13 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
             }
 
             fn process(&mut self, inputs: raug::processor::io::ProcessorInputs, mut outputs: raug::processor::io::ProcessorOutputs) -> Result<(), raug::processor::ProcessorError> {
+                #(#get_outputs_outer)*
                 #(#get_inputs)*
 
                 for __i in 0..inputs.block_size() {
                     #(#assign_inputs)*
-                    self.update(inputs.env)?;
-                    #(#assign_outputs)*
+                    #(#get_outputs)*
+                    Self::update(inputs.env, #(#update_call_args)*)?;
                 }
 
                 Ok(())
