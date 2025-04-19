@@ -21,6 +21,8 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
     let args = Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated.parse(attr);
 
     let mut extra_derives = vec![];
+    let mut allocate_fn = None;
+    let mut resize_buffers_fn = None;
     if let Ok(args) = args {
         for arg in args.iter() {
             if let syn::Meta::List(meta_list) = arg {
@@ -36,6 +38,37 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
                     return syn::Error::new_spanned(
                         meta_list.path.clone(),
                         "Unknown attribute. Only `derive` is supported.",
+                    )
+                    .to_compile_error()
+                    .into();
+                }
+            } else if let syn::Meta::NameValue(meta_name_value) = arg {
+                if meta_name_value.path.is_ident("allocate") {
+                    if let syn::Expr::Path(path) = &meta_name_value.value {
+                        allocate_fn = Some(path.path.clone());
+                    } else {
+                        return syn::Error::new_spanned(
+                            meta_name_value.value.clone(),
+                            "Expected a path for `allocate_fn`",
+                        )
+                        .to_compile_error()
+                        .into();
+                    }
+                } else if meta_name_value.path.is_ident("resize_buffers") {
+                    if let syn::Expr::Path(path) = &meta_name_value.value {
+                        resize_buffers_fn = Some(path.path.clone());
+                    } else {
+                        return syn::Error::new_spanned(
+                            meta_name_value.value.clone(),
+                            "Expected a path for `resize_buffers_fn`",
+                        )
+                        .to_compile_error()
+                        .into();
+                    }
+                } else {
+                    return syn::Error::new_spanned(
+                        meta_name_value.path.clone(),
+                        "Unknown attribute. Only `allocate_fn` and `resize_buffers_fn` are supported.",
                     )
                     .to_compile_error()
                     .into();
@@ -58,18 +91,15 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
     let mut state = vec![];
     let mut input = vec![];
     let mut output = vec![];
-    // let mut struct_destructure = vec![];
-    // let mut clone_inputs = vec![];
     let mut input_spec = vec![];
     let mut output_spec = vec![];
     let mut create_output_buffers = vec![];
     let mut update_args = vec![];
     let mut update_call_args = vec![];
     let mut get_inputs = vec![];
-    let mut get_outputs_outer = vec![];
     let mut get_outputs = vec![];
     let mut assign_inputs = vec![];
-    // let mut assign_outputs = vec![];
+    let mut assign_outputs = vec![];
 
     for (i, generic) in item.sig.generics.params.iter().enumerate() {
         let ident = format_ident!("_marker{}", i);
@@ -282,13 +312,6 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
         struct_fields.push(quote! {
             pub #name: #ty,
         });
-
-        // struct_destructure.push(quote! {
-        //     #name,
-        // });
-        // clone_inputs.push(quote! {
-        //     let #name = &*#name;
-        // });
         input_spec.push(quote! {
             raug::processor::io::SignalSpec::new(stringify!(#name), <#ty as raug::signal::Signal>::signal_type())
         });
@@ -297,7 +320,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
         });
         assign_inputs.push(quote! {
             if let Some(#name) = #name.map(|inp| &inp[__i]) {
-                self.#name.clone_from(#name);
+                Clone::clone_from(&mut self.#name, #name);
             }
         });
         update_args.push(quote! {
@@ -311,31 +334,23 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
     for (arg_index, arg) in output.iter().enumerate() {
         let ProcessorArg { name, ty } = arg;
 
-        // struct_fields.push(quote! {
-        //     pub #name: #ty,
-        // });
-        // struct_destructure.push(quote! {
-        //     #name,
-        // });
         output_spec.push(quote! {
             raug::processor::io::SignalSpec::new(stringify!(#name), <#ty as raug::signal::Signal>::signal_type())
         });
         create_output_buffers.push(quote! {
-            raug::signal::type_erased::ErasedBuffer::zeros::<#ty>(size)
+            raug::signal::type_erased::AnyBuffer::zeros::<#ty>(size)
         });
-        // assign_outputs.push(quote! {
-        //     outputs.set_output_as::<#ty>(#arg_index, __i, &self.#name)?;
-        // });
         update_args.push(quote! {
             #name: &mut #ty,
         });
         update_call_args.push(quote! {
             #name,
         });
-        get_outputs_outer.push(quote! {
-            let mut #name = outputs.output(#arg_index);
-        });
         get_outputs.push(quote! {
+            // SAFETY: We won't ever get the same output buffer twice, so there's no way to alias it.
+            let mut #name = unsafe { outputs.output_extended_lifetime(#arg_index) };
+        });
+        assign_outputs.push(quote! {
             let #name = #name.get_mut_as::<#ty>(__i).unwrap();
         });
     }
@@ -355,8 +370,10 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
     let struct_update_impl = quote! {
         impl #ig #struct_name #tg #wc {
             #[doc = "Update function for the processor."]
+            #(#attrs)*
             #[allow(clippy::too_many_arguments)]
-            fn update (env: raug::processor::io::ProcEnv, #(#update_args)*) -> raug::processor::ProcResult<()> #wc {
+            #[allow(clippy::ptr_arg)]
+            fn __process(env: raug::processor::io::ProcEnv, #(#update_args)*) -> raug::processor::ProcResult<()> {
                 #proc_env_decl
                 #body
             }
@@ -381,9 +398,30 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
     let fn_def = quote! {
         #(#attrs)*
         #[allow(clippy::too_many_arguments)]
+        #[allow(clippy::ptr_arg)]
         #vis fn #fn_name #tg (#fn_args) #outputs #wc  {
             #body
         }
+    };
+
+    let allocate_fn = if let Some(allocate_fn) = allocate_fn {
+        quote! {
+            fn allocate(&mut self, sample_rate: f32, block_size: usize) {
+                #allocate_fn(self, sample_rate, block_size);
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let resize_buffers_fn = if let Some(resize_buffers_fn) = resize_buffers_fn {
+        quote! {
+            fn resize_buffers(&mut self, sample_rate: f32, block_size: usize) {
+                #resize_buffers_fn(self, sample_rate, block_size);
+            }
+        }
+    } else {
+        quote! {}
     };
 
     let processor_impl = quote! {
@@ -400,18 +438,21 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
                 vec![#(#output_spec),*]
             }
 
-            fn create_output_buffers(&self, size: usize) -> Vec<raug::signal::type_erased::ErasedBuffer> {
+            fn create_output_buffers(&self, size: usize) -> Vec<raug::signal::type_erased::AnyBuffer> {
                 vec![#(#create_output_buffers),*]
             }
 
+            #allocate_fn
+            #resize_buffers_fn
+
             fn process(&mut self, inputs: raug::processor::io::ProcessorInputs, mut outputs: raug::processor::io::ProcessorOutputs) -> Result<(), raug::processor::ProcessorError> {
-                #(#get_outputs_outer)*
                 #(#get_inputs)*
+                #(#get_outputs)*
 
                 for __i in 0..inputs.block_size() {
                     #(#assign_inputs)*
-                    #(#get_outputs)*
-                    Self::update(inputs.env, #(#update_call_args)*)?;
+                    #(#assign_outputs)*
+                    Self::__process(inputs.env, #(#update_call_args)*)?;
                 }
 
                 Ok(())
