@@ -414,7 +414,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
             #[allow(clippy::too_many_arguments)]
             #vis fn node(self, graph: &raug::graph::Graph, #(#node_fn_args)*) -> raug::graph::node::Node {
                 use raug::graph::node::IntoOutputOpt;
-                let node = graph.add(self);
+                let node = graph.node(self);
                 let mut input_index = 0;
                 #(
                     if let Some(input) = #node_inputs.into_output_opt(graph) {
