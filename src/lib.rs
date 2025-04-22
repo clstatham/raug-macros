@@ -1,6 +1,7 @@
 use proc_macro::TokenStream;
 use processor_attribute::processor_attribute;
 use quote::quote;
+use syn::punctuated::Punctuated;
 
 mod processor_attribute;
 
@@ -115,9 +116,9 @@ fn parse_note(input: &str) -> u8 {
 
 struct IterProcIoAs {
     inputs: syn::Ident,
-    input_types: syn::punctuated::Punctuated<syn::Type, syn::Token![,]>,
+    input_types: Punctuated<syn::Type, syn::Token![,]>,
     outputs: syn::Ident,
-    output_types: syn::punctuated::Punctuated<syn::Type, syn::Token![,]>,
+    output_types: Punctuated<syn::Type, syn::Token![,]>,
 }
 
 impl syn::parse::Parse for IterProcIoAs {

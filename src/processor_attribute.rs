@@ -380,9 +380,23 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
         }
     };
 
-    let fn_name = item.sig.ident.clone();
+    // let fn_name = item.sig.ident.clone();
     let mut fn_args = item.sig.inputs.clone();
-    // remove the attributes from the function arguments
+
+    let mut node_inputs = vec![];
+    let mut node_fn_args = vec![];
+
+    for input in input.iter() {
+        let ProcessorArg { name, .. } = input;
+        node_inputs.push(quote! {
+            #name
+        });
+        node_fn_args.push(quote! {
+            #name: impl raug::graph::node::IntoOutputOpt,
+        });
+    }
+
+    // remove the attributes from the function arguments, and change their types to `Option<impl IntoOutput>`
     for arg in fn_args.iter_mut() {
         if let syn::FnArg::Typed(arg) = arg {
             arg.attrs.retain(|attr| {
@@ -393,16 +407,27 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
         }
     }
 
-    let outputs = item.sig.output.clone();
-
-    let fn_def = quote! {
-        #(#attrs)*
-        #[allow(clippy::too_many_arguments)]
-        #[allow(clippy::ptr_arg)]
-        #vis fn #fn_name #tg (#fn_args) #outputs #wc  {
-            #body
+    let node_fn_def = quote! {
+        impl #ig #struct_name #tg #wc {
+            #[doc = concat!("Adds a new ", stringify!(#struct_name), "node to the graph and connects its inputs.")]
+            #[allow(unused)]
+            #[allow(clippy::too_many_arguments)]
+            #vis fn node(self, graph: &raug::graph::Graph, #(#node_fn_args)*) -> raug::graph::node::Node {
+                use raug::graph::node::IntoOutputOpt;
+                let node = graph.add(self);
+                let mut input_index = 0;
+                #(
+                    if let Some(input) = #node_inputs.into_output_opt(graph) {
+                        node.input(input_index).connect(input);
+                    }
+                    input_index += 1;
+                )*
+                node
+            }
         }
     };
+
+    // let outputs = item.sig.output.clone();
 
     let allocate_fn = if let Some(allocate_fn) = allocate_fn {
         quote! {
@@ -461,9 +486,9 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
     };
 
     quote! {
-        #fn_def
         #struct_def
         #struct_update_impl
+        #node_fn_def
         #processor_impl
     }
     .into()
