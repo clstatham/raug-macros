@@ -1,6 +1,6 @@
 use raug_macros::processor;
 
-#[processor(derive(Copy, Debug, Default))]
+#[processor(derive(Clone, Copy, Debug, Default))]
 pub fn add_to_counter(
     #[state] counter: &mut i64,
     #[input] a: &i64,

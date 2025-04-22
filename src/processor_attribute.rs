@@ -357,7 +357,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
 
     let struct_def = quote! {
         #(#attrs)*
-        #[derive(Clone, #(#extra_derives),*)]
+        #[derive(#(#extra_derives),*)]
         #[allow(missing_docs)]
         #vis struct #struct_name #tg #wc {
             #(#struct_fields)*
