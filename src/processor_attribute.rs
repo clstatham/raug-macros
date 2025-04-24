@@ -380,9 +380,6 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
         }
     };
 
-    // let fn_name = item.sig.ident.clone();
-    let mut fn_args = item.sig.inputs.clone();
-
     let mut node_inputs = vec![];
     let mut node_fn_args = vec![];
 
@@ -394,17 +391,6 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
         node_fn_args.push(quote! {
             #name: impl raug::graph::node::IntoOutputOpt,
         });
-    }
-
-    // remove the attributes from the function arguments, and change their types to `Option<impl IntoOutput>`
-    for arg in fn_args.iter_mut() {
-        if let syn::FnArg::Typed(arg) = arg {
-            arg.attrs.retain(|attr| {
-                !(attr.path().is_ident("state")
-                    || attr.path().is_ident("input")
-                    || attr.path().is_ident("output"))
-            });
-        }
     }
 
     let node_fn_def = quote! {
