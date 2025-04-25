@@ -2,10 +2,10 @@ use raug_macros::processor;
 
 #[processor(derive(Clone, Copy, Debug, Default))]
 pub fn add_to_counter(
-    #[state] counter: &mut i64,
-    #[input] a: &i64,
-    #[input] b: &i64,
-    #[output] out: &mut i64,
+    #[state] counter: &mut f32,
+    #[input] a: &f32,
+    #[input] b: &f32,
+    #[output] out: &mut f32,
 ) -> ProcResult<()> {
     *counter += a + b;
     *out = *counter;
@@ -13,11 +13,11 @@ pub fn add_to_counter(
 }
 
 impl AddToCounter {
-    pub fn new(initial_count: i64) -> Self {
+    pub fn new(initial_count: f32) -> Self {
         Self {
             counter: initial_count,
-            a: 0,
-            b: 0,
+            a: 0.0,
+            b: 0.0,
         }
     }
 }
