@@ -373,6 +373,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
             #(#attrs)*
             #[allow(clippy::too_many_arguments)]
             #[allow(clippy::ptr_arg)]
+            #[track_caller]
             fn __process(env: raug::processor::io::ProcEnv, #(#update_args)*) -> raug::processor::ProcResult<()> {
                 #proc_env_decl
                 #body
@@ -398,6 +399,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
             #[doc = concat!("Adds a new ", stringify!(#struct_name), "node to the graph and connects its inputs.")]
             #[allow(unused)]
             #[allow(clippy::too_many_arguments)]
+            #[track_caller]
             #vis fn node(self, graph: &raug::graph::Graph, #(#node_fn_args)*) -> raug::graph::node::Node {
                 use raug::graph::node::IntoOutputOpt;
                 let node = graph.node(self);
@@ -456,6 +458,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
             #allocate_fn
             #resize_buffers_fn
 
+            #[track_caller]
             fn process(&mut self, inputs: raug::processor::io::ProcessorInputs, mut outputs: raug::processor::io::ProcessorOutputs) -> Result<(), raug::processor::ProcessorError> {
                 #(#get_inputs)*
                 #(#get_outputs)*
