@@ -374,7 +374,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
             #[allow(clippy::too_many_arguments)]
             #[allow(clippy::ptr_arg)]
             #[track_caller]
-            fn __process(env: raug::processor::io::ProcEnv, #(#update_args)*) -> raug::processor::ProcResult<()> {
+            pub fn process_sample(env: raug::processor::io::ProcEnv, #(#update_args)*) -> raug::processor::ProcResult<()> {
                 #proc_env_decl
                 #body
             }
@@ -466,7 +466,7 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
                 for __i in 0..inputs.block_size() {
                     #(#assign_inputs)*
                     #(#assign_outputs)*
-                    Self::__process(inputs.env, #(#update_call_args)*)?;
+                    Self::process_sample(inputs.env, #(#update_call_args)*)?;
                 }
 
                 Ok(())
