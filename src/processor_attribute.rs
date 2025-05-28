@@ -101,9 +101,11 @@ pub fn processor_attribute(attr: TokenStream, item: TokenStream) -> TokenStream 
     let mut assign_inputs = vec![];
     let mut assign_outputs = vec![];
 
-    for (i, generic) in item.sig.generics.params.iter().enumerate() {
-        let ident = format_ident!("_marker{}", i);
+    for generic in item.sig.generics.params.iter() {
         if let syn::GenericParam::Type(ty) = generic {
+            let ty = &ty.ident;
+            let ident = format_ident!("_{}", ty.to_string().to_lowercase());
+
             phantom_data.push(quote! {
                 #ident: std::marker::PhantomData<#ty>,
             });
